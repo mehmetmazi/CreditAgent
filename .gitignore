@@ -1,10 +1,6 @@
 # Virtual environment
 .venv/
 
-# Local env file with secrets
-.env
-
 # Byte-compiled / cache
 __pycache__/
 *.pyc
-
