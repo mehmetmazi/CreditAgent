@@ -74,8 +74,31 @@ def human_readable(num: float) -> str:
             return f"{sign}{abs_val/1e3:.2f}K"
         else:
             return f"{num:.2f}"
-    except Exception:
+    except (TypeError, ValueError):
         return str(num)
+
+
+def format_metric(value: float, format_str: str) -> str:
+    """
+    Format a metric value, handling infinity cases.
+    """
+    if value in [math.inf, -math.inf]:
+        return "n/a"
+    return format_str.format(value)
+
+
+def get_interpretation(rating_bucket: str) -> str:
+    """
+    Get the interpretation text for a given rating bucket.
+    """
+    if rating_bucket == "Low credit risk":
+        return "• Strong capacity to service debt; leverage and coverage metrics are comfortable."
+    elif rating_bucket == "Moderate credit risk":
+        return "• Reasonable ability to service debt, but metrics could tighten in a downturn."
+    elif rating_bucket == "Elevated credit risk":
+        return "• Weaker cushion; the company may struggle under stress or higher interest rates."
+    else:
+        return "• High risk profile; limited headroom to absorb shocks or refinancing stress."
 
 
 # ---------- Ticker resolution from company name ----------
@@ -126,69 +149,70 @@ def resolve_ticker_from_query(query: str) -> Tuple[str, str]:
 
 # ---------- Scoring logic ----------
 
+def _get_debt_ebitda_score(d_e: float) -> int:
+    if d_e <= 0:  # no debt or negative EBITDA
+        return 5
+    elif d_e < 2:
+        return 5
+    elif d_e < 3:
+        return 4
+    elif d_e < 4:
+        return 3
+    elif d_e < 5:
+        return 2
+    else:
+        return 1
+
+
+def _get_interest_coverage_score(ic: float) -> int:
+    if ic > 8:
+        return 5
+    elif ic > 5:
+        return 4
+    elif ic > 3:
+        return 3
+    elif ic > 1.5:
+        return 2
+    else:
+        return 1
+
+
+def _get_dscr_score(dscr: float) -> int:
+    if dscr > 1.8:
+        return 5
+    elif dscr > 1.4:
+        return 4
+    elif dscr > 1.1:
+        return 3
+    elif dscr > 1.0:
+        return 2
+    else:
+        return 1
+
+
+def _get_fcf_to_debt_score(fcf_d: float) -> int:
+    if fcf_d > 0.25:
+        return 5
+    elif fcf_d > 0.15:
+        return 4
+    elif fcf_d > 0.08:
+        return 3
+    elif fcf_d > 0.03:
+        return 2
+    else:
+        return 1
+
+
 def compute_score(metrics: CreditMetrics) -> CreditMetrics:
     """
     Score each metric 1–5 and total (0–20).
     """
-    score = 0
-
-    # Debt / EBITDA
-    d_e = metrics.debt_to_ebitda
-    if d_e <= 0:  # no debt or negative EBITDA
-        debt_ebitda_score = 5
-    elif d_e < 2:
-        debt_ebitda_score = 5
-    elif d_e < 3:
-        debt_ebitda_score = 4
-    elif d_e < 4:
-        debt_ebitda_score = 3
-    elif d_e < 5:
-        debt_ebitda_score = 2
-    else:
-        debt_ebitda_score = 1
-    score += debt_ebitda_score
-
-    # Interest coverage
-    ic = metrics.interest_coverage
-    if ic > 8:
-        ic_score = 5
-    elif ic > 5:
-        ic_score = 4
-    elif ic > 3:
-        ic_score = 3
-    elif ic > 1.5:
-        ic_score = 2
-    else:
-        ic_score = 1
-    score += ic_score
-
-    # DSCR
-    dscr = metrics.dscr
-    if dscr > 1.8:
-        dscr_score = 5
-    elif dscr > 1.4:
-        dscr_score = 4
-    elif dscr > 1.1:
-        dscr_score = 3
-    elif dscr > 1.0:
-        dscr_score = 2
-    else:
-        dscr_score = 1
-    score += dscr_score
-
-    # FCF / Debt
-    fcf_d = metrics.fcf_to_debt
-    if fcf_d > 0.25:
-        fcf_score = 5
-    elif fcf_d > 0.15:
-        fcf_score = 4
-    elif fcf_d > 0.08:
-        fcf_score = 3
-    elif fcf_d > 0.03:
-        fcf_score = 2
-    else:
-        fcf_score = 1
-    score += fcf_score
+    score = (
+        _get_debt_ebitda_score(metrics.debt_to_ebitda)
+        + _get_interest_coverage_score(metrics.interest_coverage)
+        + _get_dscr_score(metrics.dscr)
+        + _get_fcf_to_debt_score(metrics.fcf_to_debt)
+    )
 
     # Bucket
     if score >= 17:
@@ -251,9 +275,9 @@ def fetch_credit_metrics_for_ticker(ticker: str, forced_name: Optional[str] = No
 
     fcf_to_debt = (fcf / total_debt) if total_debt > 0 else math.inf
     debt_to_ebitda = (total_debt / ebitda) if ebitda != 0 else math.inf
-    interest_coverage = (ebit / abs(interest_expense)) if interest_expense != 0 else math.inf
+    interest_coverage = (ebit / abs(float(interest_expense))) if interest_expense != 0 else math.inf
 
-    denom = abs(interest_expense) + short_term_debt
+    denom = abs(float(interest_expense)) + short_term_debt
     dscr = (operating_cash_flow / denom) if denom > 0 else math.inf
 
     metrics = CreditMetrics(
@@ -299,22 +323,10 @@ def print_numeric_report(metrics: CreditMetrics):
     print(f"Interest Expense:       {human_readable(metrics.interest_expense)}")
 
     print("\n-- Cash Flow & Coverage --")
-    if metrics.fcf_to_debt not in [math.inf, -math.inf]:
-        fcf_debt_line = f"{metrics.fcf_to_debt:.2%}"
-    else:
-        fcf_debt_line = "n/a"
-    if metrics.debt_to_ebitda not in [math.inf, -math.inf]:
-        d_e_line = f"{metrics.debt_to_ebitda:.2f}"
-    else:
-        d_e_line = "n/a"
-    if metrics.interest_coverage not in [math.inf, -math.inf]:
-        ic_line = f"{metrics.interest_coverage:.2f}"
-    else:
-        ic_line = "n/a"
-    if metrics.dscr not in [math.inf, -math.inf]:
-        dscr_line = f"{metrics.dscr:.2f}"
-    else:
-        dscr_line = "n/a"
+    fcf_debt_line = format_metric(metrics.fcf_to_debt, "{:.2%}")
+    d_e_line = format_metric(metrics.debt_to_ebitda, "{:.2f}")
+    ic_line = format_metric(metrics.interest_coverage, "{:.2f}")
+    dscr_line = format_metric(metrics.dscr, "{:.2f}")
 
     print(f"Free Cash Flow (FCF):   {human_readable(metrics.fcf)}")
     print(f"FCF / Debt:             {fcf_debt_line}")
@@ -327,14 +339,7 @@ def print_numeric_report(metrics: CreditMetrics):
     print(f"Risk Bucket:            {metrics.rating_bucket}")
 
     print("\nInterpretation:")
-    if metrics.rating_bucket == "Low credit risk":
-        print("• Strong capacity to service debt; leverage and coverage metrics are comfortable.")
-    elif metrics.rating_bucket == "Moderate credit risk":
-        print("• Reasonable ability to service debt, but metrics could tighten in a downturn.")
-    elif metrics.rating_bucket == "Elevated credit risk":
-        print("• Weaker cushion; the company may struggle under stress or higher interest rates.")
-    else:
-        print("• High risk profile; limited headroom to absorb shocks or refinancing stress.")
+    print(get_interpretation(metrics.rating_bucket))
 
     print("\nNOTE: This is a simplified model using public data via yfinance; "
           "always cross-check with full financial statements & disclosures.")
@@ -366,10 +371,10 @@ Use the following quantitative metrics (latest fiscal year):
 - Total debt: {human_readable(metrics.total_debt)}
 - Interest expense: {human_readable(metrics.interest_expense)}
 - Free cash flow (FCF): {human_readable(metrics.fcf)}
-- FCF / Debt: {"n/a" if metrics.fcf_to_debt in [math.inf, -math.inf] else f"{metrics.fcf_to_debt:.2%}"}
-- Debt / EBITDA: {"n/a" if metrics.debt_to_ebitda in [math.inf, -math.inf] else f"{metrics.debt_to_ebitda:.2f}x"}
-- Interest coverage (EBIT / interest): {"n/a" if metrics.interest_coverage in [math.inf, -math.inf] else f"{metrics.interest_coverage:.2f}x"}
-- DSCR (OCF / (interest + short-term debt proxy)): {"n/a" if metrics.dscr in [math.inf, -math.inf] else f"{metrics.dscr:.2f}x"}
+- FCF / Debt: {format_metric(metrics.fcf_to_debt, "{:.2%}")}
+- Debt / EBITDA: {format_metric(metrics.debt_to_ebitda, "{:.2f}x")}
+- Interest coverage (EBIT / interest): {format_metric(metrics.interest_coverage, "{:.2f}x")}
+- DSCR (OCF / (interest + short-term debt proxy)): {format_metric(metrics.dscr, "{:.2f}x")}
 - Internal score (0–20): {metrics.score}
 - Risk bucket: {metrics.rating_bucket}
 
@@ -436,6 +441,30 @@ def _draw_wrapped_text(c: canvas.Canvas, text: str,
     return y
 
 
+def _draw_pdf_section(c: canvas.Canvas, y: float, title: str, lines: list, margin: float) -> float:
+    """
+    Draw a section of the PDF report.
+    """
+    width, height = A4
+    if y < margin:
+        c.showPage()
+        y = height - margin
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin, y, title)
+    y -= 18
+    c.setFont("Helvetica", 10)
+
+    for line in lines:
+        if y < margin:
+            c.showPage()
+            y = height - margin
+            c.setFont("Helvetica", 10)
+        c.drawString(margin, y, line)
+        y -= 14
+    return y
+
+
 def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filename: str) -> None:
     """
     Create a nicely formatted PDF with:
@@ -457,13 +486,7 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
         y -= 18
 
     # Section: Core Financials
-    y -= 10
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "1. Core Financials")
-    y -= 18
-    c.setFont("Helvetica", 10)
-
-    lines = [
+    core_financials_lines = [
         f"Revenue:                {human_readable(metrics.revenue)}",
         f"EBITDA:                 {human_readable(metrics.ebitda)}",
         f"EBIT:                   {human_readable(metrics.ebit)}",
@@ -473,37 +496,13 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
         f"Total Debt:             {human_readable(metrics.total_debt)}",
         f"Interest Expense:       {human_readable(metrics.interest_expense)}",
     ]
-    for line in lines:
-        if y < margin:
-            c.showPage()
-            y = height - margin
-            c.setFont("Helvetica", 10)
-        c.drawString(margin, y, line)
-        y -= 14
+    y = _draw_pdf_section(c, y, "1. Core Financials", core_financials_lines, margin)
 
     # Section: Coverage & Ratios
-    y -= 10
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "2. Cash Flow & Coverage")
-    y -= 18
-    c.setFont("Helvetica", 10)
-
-    if metrics.fcf_to_debt not in [math.inf, -math.inf]:
-        fcf_debt_line = f"{metrics.fcf_to_debt:.2%}"
-    else:
-        fcf_debt_line = "n/a"
-    if metrics.debt_to_ebitda not in [math.inf, -math.inf]:
-        d_e_line = f"{metrics.debt_to_ebitda:.2f}x"
-    else:
-        d_e_line = "n/a"
-    if metrics.interest_coverage not in [math.inf, -math.inf]:
-        ic_line = f"{metrics.interest_coverage:.2f}x"
-    else:
-        ic_line = "n/a"
-    if metrics.dscr not in [math.inf, -math.inf]:
-        dscr_line = f"{metrics.dscr:.2f}x"
-    else:
-        dscr_line = "n/a"
+    fcf_debt_line = format_metric(metrics.fcf_to_debt, "{:.2%}")
+    d_e_line = format_metric(metrics.debt_to_ebitda, "{:.2f}x")
+    ic_line = format_metric(metrics.interest_coverage, "{:.2f}x")
+    dscr_line = format_metric(metrics.dscr, "{:.2f}x")
 
     ratio_lines = [
         f"Free Cash Flow (FCF):   {human_readable(metrics.fcf)}",
@@ -512,41 +511,16 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
         f"Interest Coverage:      {ic_line}",
         f"DSCR:                   {dscr_line}",
     ]
-    for line in ratio_lines:
-        if y < margin:
-            c.showPage()
-            y = height - margin
-            c.setFont("Helvetica", 10)
-        c.drawString(margin, y, line)
-        y -= 14
+    y = _draw_pdf_section(c, y, "2. Cash Flow & Coverage", ratio_lines, margin)
 
     # Section: Score & Interpretation
-    y -= 10
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "3. Internal Credit View")
-    y -= 18
-    c.setFont("Helvetica", 10)
+    score_lines = [
+        f"Score (0–20): {metrics.score}",
+        f"Risk bucket:  {metrics.rating_bucket}",
+    ]
+    y = _draw_pdf_section(c, y, "3. Internal Credit View", score_lines, margin)
 
-    if y < margin:
-        c.showPage()
-        y = height - margin
-        c.setFont("Helvetica", 10)
-
-    c.drawString(margin, y, f"Score (0–20): {metrics.score}")
-    y -= 14
-    c.drawString(margin, y, f"Risk bucket:  {metrics.rating_bucket}")
-    y -= 18
-
-    interpretation = ""
-    if metrics.rating_bucket == "Low credit risk":
-        interpretation = "Strong capacity to service debt; leverage and coverage metrics are comfortable."
-    elif metrics.rating_bucket == "Moderate credit risk":
-        interpretation = "Reasonable ability to service debt, but metrics could tighten in a downturn."
-    elif metrics.rating_bucket == "Elevated credit risk":
-        interpretation = "Weaker cushion; the company may struggle under stress or higher interest rates."
-    else:
-        interpretation = "High risk profile; limited headroom to absorb shocks or refinancing stress."
-
+    interpretation = get_interpretation(metrics.rating_bucket)
     y = _draw_wrapped_text(
         c,
         "Interpretation: " + interpretation,
@@ -598,15 +572,10 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
 
 # ---------- CLI entrypoint ----------
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python credit_agent.py <TICKER_OR_COMPANY_NAME>")
-        print("Example: python credit_agent.py AAPL")
-        print("         python credit_agent.py \"Apple Inc\"")
-        sys.exit(1)
-
-    query = " ".join(sys.argv[1:]).strip()
-
+def run_credit_analysis(query: str):
+    """
+    Run the full credit analysis for a given query.
+    """
     try:
         ticker, name_from_search = resolve_ticker_from_query(query)
         metrics = fetch_credit_metrics_for_ticker(ticker, forced_name=name_from_search)
@@ -616,8 +585,6 @@ def main():
 
     # Console snapshot (optional, for debugging)
     print_numeric_report(metrics)
-
-    memo_text = None
 
     # Try to generate a memo if API key is present
     if os.getenv("OPENAI_API_KEY"):
@@ -637,6 +604,17 @@ def main():
     filename = f"credit_report_{safe_ticker}.pdf"
     generate_pdf_report(metrics, memo_text, filename)
     print(f"\nPDF report saved as: {filename}")
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python credit_agent.py <TICKER_OR_COMPANY_NAME>")
+        print("Example: python credit_agent.py AAPL")
+        print("         python credit_agent.py \"Apple Inc\"")
+        sys.exit(1)
+
+    query = " ".join(sys.argv[1:]).strip()
+    run_credit_analysis(query)
 
 
 if __name__ == "__main__":
