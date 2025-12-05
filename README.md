@@ -11,7 +11,7 @@ Features
 Requirements
 - Python 3.8+
 - macOS / Unix-like shell
-- Packages: `requests`, `yfinance`, `pandas`, `openai`, `reportlab`
+- Packages: `requests`, `yfinance`, `pandas`, `openai`, `reportlab`, `flask`
 
 Quick install
 
@@ -34,6 +34,13 @@ Resolve a ticker/company and generate a PDF report:
 
 ```bash
 python .venv/credit_agent_llm.py AAPL
+```
+
+Launch a small web UI (Flask) to view the credit snapshot in your browser:
+
+```bash
+python credit_agent_frontend.py
+# then open http://127.0.0.1:5000 and enter a ticker
 ```
 
 Or pass a company name:
