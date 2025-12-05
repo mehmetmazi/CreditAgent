@@ -5,25 +5,19 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any, List
 
 import requests
-import pandas as pd
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat.chat_completion_system_message_param import ChatCompletionSystemMessageParam
+from openai.types.chat.chat_completion_user_message_param import ChatCompletionUserMessageParam
 
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-
-
-# ---------- Config ----------
-
-FMP_API_KEY = os.getenv("FMP_API_KEY")  # set this in your environment
 
 
 # ---------- Data structures ----------
 
 @dataclass
 class CreditMetrics:
-    def __init__(self):
-        pass
-
     ticker: str
     company_name: str
     fiscal_year: str
@@ -65,7 +59,7 @@ def human_readable(num: float) -> str:
             return f"{sign}{abs_val/1e3:.2f}K"
         else:
             return f"{num:.2f}"
-    except Exception:
+    except (TypeError, ValueError):
         return str(num)
 
 
@@ -77,60 +71,52 @@ def _get_json(url: str, params: Dict[str, Any]) -> Any:
 
 # ---------- FMP fetch functions ----------
 
-def fetch_fmp_income_statement(symbol: str) -> Dict[str, Any]:
+def fetch_fmp_income_statement(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns the latest annual income statement dict from FMP.
     Endpoint: /api/v3/income-statement/{symbol}?limit=1
     """
-    if not FMP_API_KEY:
-        raise RuntimeError("FMP_API_KEY not set in environment.")
     url = f"https://financialmodelingprep.com/api/v3/income-statement/{symbol}"
-    params = {"limit": 1, "apikey": FMP_API_KEY}
+    params = {"limit": 1, "apikey": api_key}
     data = _get_json(url, params)
     if not data:
         raise ValueError(f"No income statement data for {symbol}")
     return data[0]
 
 
-def fetch_fmp_balance_sheet(symbol: str) -> Dict[str, Any]:
+def fetch_fmp_balance_sheet(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns the latest annual balance sheet dict from FMP.
     Endpoint: /api/v3/balance-sheet-statement/{symbol}?limit=1
     """
-    if not FMP_API_KEY:
-        raise RuntimeError("FMP_API_KEY not set in environment.")
     url = f"https://financialmodelingprep.com/api/v3/balance-sheet-statement/{symbol}"
-    params = {"limit": 1, "apikey": FMP_API_KEY}
+    params = {"limit": 1, "apikey": api_key}
     data = _get_json(url, params)
     if not data:
         raise ValueError(f"No balance sheet data for {symbol}")
     return data[0]
 
 
-def fetch_fmp_cash_flow(symbol: str) -> Dict[str, Any]:
+def fetch_fmp_cash_flow(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns the latest annual cash flow statement dict from FMP.
     Endpoint: /api/v3/cash-flow-statement/{symbol}?limit=1
     """
-    if not FMP_API_KEY:
-        raise RuntimeError("FMP_API_KEY not set in environment.")
     url = f"https://financialmodelingprep.com/api/v3/cash-flow-statement/{symbol}"
-    params = {"limit": 1, "apikey": FMP_API_KEY}
+    params = {"limit": 1, "apikey": api_key}
     data = _get_json(url, params)
     if not data:
         raise ValueError(f"No cash flow data for {symbol}")
     return data[0]
 
 
-def fetch_fmp_profile(symbol: str) -> Dict[str, Any]:
+def fetch_fmp_profile(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns company profile with name, etc.
     Endpoint: /api/v3/profile/{symbol}
     """
-    if not FMP_API_KEY:
-        raise RuntimeError("FMP_API_KEY not set in environment.")
     url = f"https://financialmodelingprep.com/api/v3/profile/{symbol}"
-    params = {"apikey": FMP_API_KEY}
+    params = {"apikey": api_key}
     data = _get_json(url, params)
     if not data:
         return {}
@@ -139,7 +125,7 @@ def fetch_fmp_profile(symbol: str) -> Dict[str, Any]:
 
 # ---------- Symbol / name resolution ----------
 
-def resolve_symbol(query: str) -> Tuple[str, str]:
+def resolve_symbol(query: str, api_key: str) -> Tuple[str, str]:
     """
     Use FMP's search endpoint to resolve a name/ticker into a symbol + company name.
 
@@ -147,12 +133,9 @@ def resolve_symbol(query: str) -> Tuple[str, str]:
     """
     raw = query.strip()
 
-    if not FMP_API_KEY:
-        raise RuntimeError("FMP_API_KEY not set in environment.")
-
     # If they already gave something ticker-like, we'll still run search but fallback gracefully.
     url = "https://financialmodelingprep.com/api/v3/search"
-    params = {"query": raw, "limit": 1, "exchange": "NASDAQ,NYSE,AMEX", "apikey": FMP_API_KEY}
+    params = {"query": raw, "limit": 1, "exchange": "NASDAQ,NYSE,AMEX", "apikey": api_key}
     try:
         data = _get_json(url, params)
     except Exception as e:
@@ -171,69 +154,70 @@ def resolve_symbol(query: str) -> Tuple[str, str]:
 
 # ---------- Scoring logic ----------
 
+def _get_debt_ebitda_score(d_e: float) -> int:
+    if d_e <= 0:
+        return 5
+    elif d_e < 2:
+        return 5
+    elif d_e < 3:
+        return 4
+    elif d_e < 4:
+        return 3
+    elif d_e < 5:
+        return 2
+    else:
+        return 1
+
+
+def _get_interest_coverage_score(ic: float) -> int:
+    if ic > 8:
+        return 5
+    elif ic > 5:
+        return 4
+    elif ic > 3:
+        return 3
+    elif ic > 1.5:
+        return 2
+    else:
+        return 1
+
+
+def _get_dscr_score(dscr: float) -> int:
+    if dscr > 1.8:
+        return 5
+    elif dscr > 1.4:
+        return 4
+    elif dscr > 1.1:
+        return 3
+    elif dscr > 1.0:
+        return 2
+    else:
+        return 1
+
+
+def _get_fcf_to_debt_score(fcf_d: float) -> int:
+    if fcf_d > 0.25:
+        return 5
+    elif fcf_d > 0.15:
+        return 4
+    elif fcf_d > 0.08:
+        return 3
+    elif fcf_d > 0.03:
+        return 2
+    else:
+        return 1
+
+
 def compute_score(metrics: CreditMetrics) -> CreditMetrics:
     """
     Score each metric 1–5 and total (0–20).
     """
-    score = 0
-
-    # Debt / EBITDA
-    d_e = metrics.debt_to_ebitda
-    if d_e <= 0:  # no debt or negative EBITDA
-        debt_ebitda_score = 5
-    elif d_e < 2:
-        debt_ebitda_score = 5
-    elif d_e < 3:
-        debt_ebitda_score = 4
-    elif d_e < 4:
-        debt_ebitda_score = 3
-    elif d_e < 5:
-        debt_ebitda_score = 2
-    else:
-        debt_ebitda_score = 1
-    score += debt_ebitda_score
-
-    # Interest coverage
-    ic = metrics.interest_coverage
-    if ic > 8:
-        ic_score = 5
-    elif ic > 5:
-        ic_score = 4
-    elif ic > 3:
-        ic_score = 3
-    elif ic > 1.5:
-        ic_score = 2
-    else:
-        ic_score = 1
-    score += ic_score
-
-    # DSCR
-    dscr = metrics.dscr
-    if dscr > 1.8:
-        dscr_score = 5
-    elif dscr > 1.4:
-        dscr_score = 4
-    elif dscr > 1.1:
-        dscr_score = 3
-    elif dscr > 1.0:
-        dscr_score = 2
-    else:
-        dscr_score = 1
-    score += dscr_score
-
-    # FCF / Debt
-    fcf_d = metrics.fcf_to_debt
-    if fcf_d > 0.25:
-        fcf_score = 5
-    elif fcf_d > 0.15:
-        fcf_score = 4
-    elif fcf_d > 0.08:
-        fcf_score = 3
-    elif fcf_d > 0.03:
-        fcf_score = 2
-    else:
-        fcf_score = 1
-    score += fcf_score
+    score = (
+        _get_debt_ebitda_score(metrics.debt_to_ebitda)
+        + _get_interest_coverage_score(metrics.interest_coverage)
+        + _get_dscr_score(metrics.dscr)
+        + _get_fcf_to_debt_score(metrics.fcf_to_debt)
+    )
 
     # Bucket
     if score >= 17:
@@ -252,14 +236,14 @@ def compute_score(metrics: CreditMetrics) -> CreditMetrics:
 
 # ---------- Core metrics from FMP ----------
 
-def fetch_credit_metrics_for_symbol(symbol: str, forced_name: Optional[str] = None) -> CreditMetrics:
+def fetch_credit_metrics_for_symbol(symbol: str, api_key: str, forced_name: Optional[str] = None) -> CreditMetrics:
     """
     Pull FMP statements and derive the credit metrics.
     """
-    income = fetch_fmp_income_statement(symbol)
-    balance = fetch_fmp_balance_sheet(symbol)
-    cashflow = fetch_fmp_cash_flow(symbol)
-    profile = fetch_fmp_profile(symbol)
+    income = fetch_fmp_income_statement(symbol, api_key)
+    balance = fetch_fmp_balance_sheet(symbol, api_key)
+    cashflow = fetch_fmp_cash_flow(symbol, api_key)
+    profile = fetch_fmp_profile(symbol, api_key)
 
     company_name = forced_name or profile.get("companyName") or profile.get("companyName") or symbol
 
@@ -299,9 +283,9 @@ def fetch_credit_metrics_for_symbol(symbol: str, forced_name: Optional[str] = No
 
     fcf_to_debt = (fcf / total_debt) if total_debt > 0 else math.inf
     debt_to_ebitda = (total_debt / ebitda) if ebitda != 0 else math.inf
-    interest_coverage = (ebit / abs(interest_expense)) if interest_expense != 0 else math.inf
+    interest_coverage = (ebit / abs(float(interest_expense))) if interest_expense != 0 else math.inf
 
-    denom = abs(interest_expense) + short_term_debt
+    denom = abs(float(interest_expense)) + short_term_debt
     dscr = (operating_cash_flow / denom) if denom > 0 else math.inf
 
     metrics = CreditMetrics(
@@ -347,22 +331,10 @@ def print_numeric_report(metrics: CreditMetrics):
     print(f"Interest Expense:       {human_readable(metrics.interest_expense)}")
 
     print("\n-- Cash Flow & Coverage --")
-    if metrics.fcf_to_debt not in [math.inf, -math.inf]:
-        fcf_debt_line = f"{metrics.fcf_to_debt:.2%}"
-    else:
-        fcf_debt_line = "n/a"
-    if metrics.debt_to_ebitda not in [math.inf, -math.inf]:
-        d_e_line = f"{metrics.debt_to_ebitda:.2f}"
-    else:
-        d_e_line = "n/a"
-    if metrics.interest_coverage not in [math.inf, -math.inf]:
-        ic_line = f"{metrics.interest_coverage:.2f}"
-    else:
-        ic_line = "n/a"
-    if metrics.dscr not in [math.inf, -math.inf]:
-        dscr_line = f"{metrics.dscr:.2f}"
-    else:
-        dscr_line = "n/a"
+    fcf_debt_line = "n/a" if metrics.fcf_to_debt in [math.inf, -math.inf] else f"{metrics.fcf_to_debt:.2%}"
+    d_e_line = "n/a" if metrics.debt_to_ebitda in [math.inf, -math.inf] else f"{metrics.debt_to_ebitda:.2f}"
+    ic_line = "n/a" if metrics.interest_coverage in [math.inf, -math.inf] else f"{metrics.interest_coverage:.2f}"
+    dscr_line = "n/a" if metrics.dscr in [math.inf, -math.inf] else f"{metrics.dscr:.2f}"
 
     print(f"Free Cash Flow (FCF):   {human_readable(metrics.fcf)}")
     print(f"FCF / Debt:             {fcf_debt_line}")
@@ -391,10 +363,15 @@ def print_numeric_report(metrics: CreditMetrics):
 
 # ---------- OpenAI credit memo ----------
 
-def generate_credit_memo_with_llm(metrics: CreditMetrics, model: str = "gpt-4.1-mini") -> str:
+def generate_credit_memo_with_llm(metrics: CreditMetrics, model: str = "gpt-4o-mini") -> str:
+    """
+    Use OpenAI Chat Completions API to turn numeric metrics into a structured credit memo.
+    Requires OPENAI_API_KEY in the environment.
+    """
     client = OpenAI()  # uses OPENAI_API_KEY
 
-    prompt = f"""
+    system_prompt = "You are an experienced sell-side credit analyst."
+    user_prompt = f"""
 You are an experienced sell-side credit analyst.
 
 Write a structured, professional credit memo on {metrics.company_name} (ticker: {metrics.ticker}).
@@ -429,19 +406,20 @@ Write the memo in concise UK English with these section headings:
 Focus strictly on the metrics above. Where information is missing, say so explicitly rather than inventing details.
 """
 
-    response = client.responses.create(
+    messages: List[ChatCompletionMessageParam] = [
+        ChatCompletionSystemMessageParam(role="system", content=system_prompt),
+        ChatCompletionUserMessageParam(role="user", content=user_prompt),
+    ]
+
+    response = client.chat.completions.create(
         model=model,
-        input=prompt.strip(),
+        messages=messages,
     )
 
-    return response.output_text
+    return response.choices[0].message.content
 
 
-# ---------- PDF generation helpers (same as before) ----------
-
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-
+# ---------- PDF generation helpers ----------
 
 def _draw_wrapped_text(c: canvas.Canvas, text: str,
                        x: float, y: float,
@@ -479,12 +457,34 @@ def _draw_wrapped_text(c: canvas.Canvas, text: str,
     return y
 
 
+def _draw_pdf_section(c: canvas.Canvas, y: float, title: str, lines: List[str], margin: float) -> float:
+    """Draw a section with a title and a list of lines."""
+    if y < margin:
+        c.showPage()
+        y = A4[1] - margin
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin, y, title)
+    y -= 18
+    c.setFont("Helvetica", 10)
+
+    for line in lines:
+        if y < margin:
+            c.showPage()
+            y = A4[1] - margin
+            c.setFont("Helvetica", 10)
+        c.drawString(margin, y, line)
+        y -= 14
+    return y
+
+
 def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filename: str) -> None:
     c = canvas.Canvas(filename, pagesize=A4)
     width, height = A4
     margin = 50
     y = height - margin
 
+    # Title
     c.setFont("Helvetica-Bold", 16)
     c.drawString(margin, y, f"Credit Report – {metrics.company_name} ({metrics.ticker})")
     y -= 24
@@ -494,13 +494,7 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
         y -= 18
 
     # Core Financials
-    y -= 10
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "1. Core Financials")
-    y -= 18
-    c.setFont("Helvetica", 10)
-
-    lines = [
+    core_financials_lines = [
         f"Revenue:                {human_readable(metrics.revenue)}",
         f"EBITDA:                 {human_readable(metrics.ebitda)}",
         f"EBIT:                   {human_readable(metrics.ebit)}",
@@ -510,37 +504,13 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
         f"Total Debt:             {human_readable(metrics.total_debt)}",
         f"Interest Expense:       {human_readable(metrics.interest_expense)}",
     ]
-    for line in lines:
-        if y < margin:
-            c.showPage()
-            y = height - margin
-            c.setFont("Helvetica", 10)
-        c.drawString(margin, y, line)
-        y -= 14
+    y = _draw_pdf_section(c, y, "1. Core Financials", core_financials_lines, margin)
 
     # Coverage & ratios
-    y -= 10
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "2. Cash Flow & Coverage")
-    y -= 18
-    c.setFont("Helvetica", 10)
-
-    if metrics.fcf_to_debt not in [math.inf, -math.inf]:
-        fcf_debt_line = f"{metrics.fcf_to_debt:.2%}"
-    else:
-        fcf_debt_line = "n/a"
-    if metrics.debt_to_ebitda not in [math.inf, -math.inf]:
-        d_e_line = f"{metrics.debt_to_ebitda:.2f}x"
-    else:
-        d_e_line = "n/a"
-    if metrics.interest_coverage not in [math.inf, -math.inf]:
-        ic_line = f"{metrics.interest_coverage:.2f}x"
-    else:
-        ic_line = "n/a"
-    if metrics.dscr not in [math.inf, -math.inf]:
-        dscr_line = f"{metrics.dscr:.2f}x"
-    else:
-        dscr_line = "n/a"
+    fcf_debt_line = "n/a" if metrics.fcf_to_debt in [math.inf, -math.inf] else f"{metrics.fcf_to_debt:.2%}"
+    d_e_line = "n/a" if metrics.debt_to_ebitda in [math.inf, -math.inf] else f"{metrics.debt_to_ebitda:.2f}x"
+    ic_line = "n/a" if metrics.interest_coverage in [math.inf, -math.inf] else f"{metrics.interest_coverage:.2f}x"
+    dscr_line = "n/a" if metrics.dscr in [math.inf, -math.inf] else f"{metrics.dscr:.2f}x"
 
     ratio_lines = [
         f"Free Cash Flow (FCF):   {human_readable(metrics.fcf)}",
@@ -549,30 +519,14 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
         f"Interest Coverage:      {ic_line}",
         f"DSCR:                   {dscr_line}",
     ]
-    for line in ratio_lines:
-        if y < margin:
-            c.showPage()
-            y = height - margin
-            c.setFont("Helvetica", 10)
-        c.drawString(margin, y, line)
-        y -= 14
+    y = _draw_pdf_section(c, y, "2. Cash Flow & Coverage", ratio_lines, margin)
 
     # Internal view
-    y -= 10
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "3. Internal Credit View")
-    y -= 18
-    c.setFont("Helvetica", 10)
-
-    if y < margin:
-        c.showPage()
-        y = height - margin
-        c.setFont("Helvetica", 10)
-
-    c.drawString(margin, y, f"Score (0–20): {metrics.score}")
-    y -= 14
-    c.drawString(margin, y, f"Risk bucket:  {metrics.rating_bucket}")
-    y -= 18
+    score_lines = [
+        f"Score (0–20): {metrics.score}",
+        f"Risk bucket:  {metrics.rating_bucket}",
+    ]
+    y = _draw_pdf_section(c, y, "3. Internal Credit View", score_lines, margin)
 
     if metrics.rating_bucket == "Low credit risk":
         interpretation = "Strong capacity to service debt; leverage and coverage metrics are comfortable."
@@ -633,23 +587,11 @@ def generate_pdf_report(metrics: CreditMetrics, memo_text: Optional[str], filena
 
 # ---------- CLI entrypoint ----------
 
-def main():
-    global metrics
-    if len(sys.argv) < 2:
-        print("Usage: python credit_agent_fmp.py <TICKER_OR_COMPANY_NAME>")
-        print("Example: python credit_agent_fmp.py AAPL")
-        print("         python credit_agent_fmp.py \"Apple Inc\"")
-        sys.exit(1)
-
-    if not FMP_API_KEY:
-        print("Error: FMP_API_KEY is not set in the environment.")
-        sys.exit(1)
-
-    query = " ".join(sys.argv[1:]).strip()
-
+def run_analysis(query: str, fmp_api_key: str):
+    """Main execution flow."""
     try:
-        symbol, name_from_search = resolve_symbol(query)
-        metrics = fetch_credit_metrics_for_symbol(symbol, forced_name=name_from_search)
+        symbol, name_from_search = resolve_symbol(query, fmp_api_key)
+        metrics = fetch_credit_metrics_for_symbol(symbol, fmp_api_key, forced_name=name_from_search)
     except Exception as e:
         print(f"Error resolving or fetching data for '{query}': {e}")
         sys.exit(1)
@@ -667,12 +609,27 @@ def main():
             memo_text = f"(Memo generation failed: {e})"
     else:
         print("\nNo OPENAI_API_KEY found in environment; skipping LLM memo in PDF.")
-        memo_text = None
 
     safe_symbol = metrics.ticker.replace("/", "_")
     filename = f"credit_report_{safe_symbol}.pdf"
     generate_pdf_report(metrics, memo_text, filename)
     print(f"\nPDF report saved as: {filename}")
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python credit_agent_fmp.py <TICKER_OR_COMPANY_NAME>")
+        print("Example: python credit_agent_fmp.py AAPL")
+        print("         python credit_agent_fmp.py \"Apple Inc\"")
+        sys.exit(1)
+
+    fmp_api_key = os.getenv("FMP_API_KEY")
+    if not fmp_api_key:
+        print("Error: FMP_API_KEY is not set in the environment.")
+        sys.exit(1)
+
+    query = " ".join(sys.argv[1:]).strip()
+    run_analysis(query, fmp_api_key)
 
 
 if __name__ == "__main__":

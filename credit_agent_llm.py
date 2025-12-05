@@ -348,14 +348,16 @@ def print_numeric_report(metrics: CreditMetrics):
 
 # ---------- OpenAI credit memo ----------
 
-def generate_credit_memo_with_llm(metrics: CreditMetrics, model: str = "gpt-4.1-mini") -> str:
+def generate_credit_memo_with_llm(metrics: CreditMetrics, model: str = "gpt-4o-mini") -> str:
     """
-    Use OpenAI Responses API to turn numeric metrics into a structured credit memo.
+    Use OpenAI Chat Completions API to turn numeric metrics into a structured credit memo.
     Requires OPENAI_API_KEY in the environment.
     """
     client = OpenAI()  # uses OPENAI_API_KEY
 
-    prompt = f"""
+    messages = [
+        {"role": "system", "content": "You are an experienced sell-side credit analyst."},
+        {"role": "user", "content": f"""
 You are an experienced sell-side credit analyst.
 
 Write a structured, professional credit memo on {metrics.company_name} (ticker: {metrics.ticker}).
@@ -388,14 +390,15 @@ Write the memo in concise UK English with these section headings:
 6. Overall credit view and recommendation
 
 Focus strictly on the metrics above. Where information is missing, say so explicitly rather than inventing details.
-"""
+"""}
+    ]
 
-    response = client.responses.create(
+    response = client.chat.completions.create(
         model=model,
-        input=prompt.strip(),
+        messages=messages,
     )
 
-    return response.output_text
+    return response.choices[0].message.content
 
 
 # ---------- PDF generation ----------
