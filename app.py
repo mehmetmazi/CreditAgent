@@ -43,6 +43,53 @@ def format_ratio(value, format_type='ratio'):
         return f"{value:.2f}"
 
 
+def format_memo_html(memo_text):
+    """
+    Format the LLM-generated memo text into proper HTML with sections.
+    """
+    if not memo_text:
+        return ""
+
+    import re
+
+    # First, split by lines to detect section headers
+    lines = memo_text.split('\n')
+    formatted_html = []
+    current_para = []
+
+    for line in lines:
+        line = line.strip()
+
+        # Check if it's a section header (e.g., "1. Business overview")
+        section_match = re.match(r'^(\d+)\.\s+(.+)$', line)
+
+        if section_match:
+            # Save any accumulated paragraph
+            if current_para:
+                para_text = ' '.join(current_para)
+                formatted_html.append(f'<p>{para_text}</p>')
+                current_para = []
+
+            # Add section header
+            formatted_html.append(f'<h3 class="memo-heading">{section_match.group(1)}. {section_match.group(2)}</h3>')
+        elif not line:
+            # Empty line - end current paragraph
+            if current_para:
+                para_text = ' '.join(current_para)
+                formatted_html.append(f'<p>{para_text}</p>')
+                current_para = []
+        else:
+            # Regular line - add to current paragraph
+            current_para.append(line)
+
+    # Don't forget the last paragraph
+    if current_para:
+        para_text = ' '.join(current_para)
+        formatted_html.append(f'<p>{para_text}</p>')
+
+    return '\n'.join(formatted_html)
+
+
 @app.route("/")
 def index():
     """Homepage with search form."""
@@ -484,20 +531,42 @@ def report():
                 border-radius: 12px;
                 line-height: 1.8;
                 color: #1e293b;
+                white-space: pre-wrap;
             }
 
             .memo-section p {
-                margin-bottom: 1rem;
+                margin-bottom: 1.25rem;
+                text-align: justify;
             }
 
-            .memo-section h3 {
+            .memo-section p:last-child {
+                margin-bottom: 0;
+            }
+
+            .memo-heading {
                 color: #667eea;
-                margin-top: 1.5rem;
-                margin-bottom: 0.75rem;
+                font-size: 1.25rem;
+                font-weight: 700;
+                margin-top: 2rem;
+                margin-bottom: 1rem;
+                padding-top: 1rem;
+                border-top: 2px solid #e2e8f0;
             }
 
-            .memo-section h3:first-child {
+            .memo-heading:first-child {
                 margin-top: 0;
+                padding-top: 0;
+                border-top: none;
+            }
+
+            .memo-note {
+                background: #fef3c7;
+                border-left: 4px solid #f59e0b;
+                padding: 1rem;
+                border-radius: 6px;
+                margin-top: 1rem;
+                font-size: 0.95rem;
+                color: #92400e;
             }
 
             .actions {
@@ -675,13 +744,22 @@ def report():
                         </table>
                     </div>
 
-                    {% if memo %}
                     <div class="section">
                         <h2 class="section-title">AI-Generated Credit Analysis</h2>
+                        {% if formatted_memo %}
                         <div class="memo-section">
-                            {{ memo | safe | replace('\n\n', '</p><p>') | replace('\n', '<br>') | replace('1. ', '<h3>1. ') | replace('2. ', '</p><h3>2. ') | replace('3. ', '</p><h3>3. ') | replace('4. ', '</p><h3>4. ') | replace('5. ', '</p><h3>5. ') | replace('6. ', '</p><h3>6. ') | replace('\n', '') }}
+                            {{ formatted_memo | safe }}
                         </div>
-                    {% endif %}
+                        {% elif memo %}
+                        <div class="memo-note">
+                            <strong>Note:</strong> {{ memo }}
+                        </div>
+                        {% else %}
+                        <div class="memo-note">
+                            <strong>Note:</strong> Set OPENAI_API_KEY environment variable to enable AI-generated credit memos.
+                        </div>
+                        {% endif %}
+                    </div>
 
                     <div class="actions">
                         <a href="/download-pdf?symbol={{ metrics.ticker }}" class="btn btn-primary">Download PDF Report</a>
@@ -695,12 +773,15 @@ def report():
     </html>
     """
 
+    formatted_memo = format_memo_html(memo) if memo and not memo.startswith("Note:") else ""
+
     return render_template_string(
         template,
         query=query,
         error=error,
         metrics=metrics,
         memo=memo,
+        formatted_memo=formatted_memo,
         human_readable=human_readable,
         format_ratio=format_ratio
     )
