@@ -74,9 +74,9 @@ def _get_json(url: str, params: Dict[str, Any]) -> Any:
 def fetch_fmp_income_statement(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns the latest annual income statement dict from FMP.
-    Endpoint: /api/v3/income-statement/{symbol}?limit=1
+    Endpoint: /stable/income-statement?symbol={symbol}?limit=1
     """
-    url = f"https://financialmodelingprep.com/api/v3/income-statement/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/income-statement?symbol={symbol}"
     params = {"limit": 1, "apikey": api_key}
     data = _get_json(url, params)
     if not data:
@@ -87,9 +87,9 @@ def fetch_fmp_income_statement(symbol: str, api_key: str) -> Dict[str, Any]:
 def fetch_fmp_balance_sheet(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns the latest annual balance sheet dict from FMP.
-    Endpoint: /api/v3/balance-sheet-statement/{symbol}?limit=1
+    Endpoint: /stable/balance-sheet-statement?symbol={symbol}?limit=1
     """
-    url = f"https://financialmodelingprep.com/api/v3/balance-sheet-statement/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/balance-sheet-statement?symbol={symbol}"
     params = {"limit": 1, "apikey": api_key}
     data = _get_json(url, params)
     if not data:
@@ -100,9 +100,9 @@ def fetch_fmp_balance_sheet(symbol: str, api_key: str) -> Dict[str, Any]:
 def fetch_fmp_cash_flow(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns the latest annual cash flow statement dict from FMP.
-    Endpoint: /api/v3/cash-flow-statement/{symbol}?limit=1
+    Endpoint: /stable/cash-flow-statement/{symbol}?limit=1
     """
-    url = f"https://financialmodelingprep.com/api/v3/cash-flow-statement/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/cash-flow-statement?symbol={symbol}"
     params = {"limit": 1, "apikey": api_key}
     data = _get_json(url, params)
     if not data:
@@ -113,9 +113,9 @@ def fetch_fmp_cash_flow(symbol: str, api_key: str) -> Dict[str, Any]:
 def fetch_fmp_profile(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns company profile with name, etc.
-    Endpoint: /api/v3/profile/{symbol}
+    Endpoint: /stable/profile/{symbol}
     """
-    url = f"https://financialmodelingprep.com/api/v3/profile/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/profile?symbol={symbol}"
     params = {"apikey": api_key}
     data = _get_json(url, params)
     if not data:
@@ -129,12 +129,12 @@ def resolve_symbol(query: str, api_key: str) -> Tuple[str, str]:
     """
     Use FMP's search endpoint to resolve a name/ticker into a symbol + company name.
 
-    Endpoint: /api/v3/search
+    Endpoint: /stable/search-name
     """
     raw = query.strip()
 
     # If they already gave something ticker-like, we'll still run search but fallback gracefully.
-    url = "https://financialmodelingprep.com/api/v3/search"
+    url = "https://financialmodelingprep.com/stable/search-name"
     params = {"query": raw, "limit": 1, "exchange": "NASDAQ,NYSE,AMEX", "apikey": api_key}
     try:
         data = _get_json(url, params)
