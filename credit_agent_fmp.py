@@ -21,13 +21,9 @@ FMP_API_KEY = os.getenv("FMP_API_KEY")  # set this in your environment
 
 @dataclass
 class CreditMetrics:
-    def __init__(self):
-        pass
-
     ticker: str
     company_name: str
     fiscal_year: str
-
     revenue: float
     ebitda: float
     ebit: float
@@ -36,13 +32,11 @@ class CreditMetrics:
     capex: float
     change_in_wc: float
     total_debt: float
-
     fcf: float
     fcf_to_debt: float
     debt_to_ebitda: float
     interest_coverage: float
     dscr: float
-
     score: int
     rating_bucket: str
 
@@ -80,11 +74,11 @@ def _get_json(url: str, params: Dict[str, Any]) -> Any:
 def fetch_fmp_income_statement(symbol: str) -> Dict[str, Any]:
     """
     Returns the latest annual income statement dict from FMP.
-    Endpoint: /api/v3/income-statement/{symbol}?limit=1
+    Endpoint: /stable/income-statement?symbol={symbol} limit=1
     """
     if not FMP_API_KEY:
         raise RuntimeError("FMP_API_KEY not set in environment.")
-    url = f"https://financialmodelingprep.com/api/v3/income-statement/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/income-statement?symbol={symbol}"
     params = {"limit": 1, "apikey": FMP_API_KEY}
     data = _get_json(url, params)
     if not data:
@@ -95,11 +89,11 @@ def fetch_fmp_income_statement(symbol: str) -> Dict[str, Any]:
 def fetch_fmp_balance_sheet(symbol: str) -> Dict[str, Any]:
     """
     Returns the latest annual balance sheet dict from FMP.
-    Endpoint: /api/v3/balance-sheet-statement/{symbol}?limit=1
+    Endpoint: /stable/balance-sheet-statement?symbol={symbol}?limit=1
     """
     if not FMP_API_KEY:
         raise RuntimeError("FMP_API_KEY not set in environment.")
-    url = f"https://financialmodelingprep.com/api/v3/balance-sheet-statement/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/balance-sheet-statement?symbol={symbol}"
     params = {"limit": 1, "apikey": FMP_API_KEY}
     data = _get_json(url, params)
     if not data:
@@ -110,11 +104,11 @@ def fetch_fmp_balance_sheet(symbol: str) -> Dict[str, Any]:
 def fetch_fmp_cash_flow(symbol: str) -> Dict[str, Any]:
     """
     Returns the latest annual cash flow statement dict from FMP.
-    Endpoint: /api/v3/cash-flow-statement/{symbol}?limit=1
+    Endpoint: /stable/cash-flow-statement?symbol={symbol}?limit=1
     """
     if not FMP_API_KEY:
         raise RuntimeError("FMP_API_KEY not set in environment.")
-    url = f"https://financialmodelingprep.com/api/v3/cash-flow-statement/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/cash-flow-statement?symbol={symbol}"
     params = {"limit": 1, "apikey": FMP_API_KEY}
     data = _get_json(url, params)
     if not data:
@@ -125,11 +119,11 @@ def fetch_fmp_cash_flow(symbol: str) -> Dict[str, Any]:
 def fetch_fmp_profile(symbol: str) -> Dict[str, Any]:
     """
     Returns company profile with name, etc.
-    Endpoint: /api/v3/profile/{symbol}
+    Endpoint: /stable/profile?symbol={symbol}
     """
     if not FMP_API_KEY:
         raise RuntimeError("FMP_API_KEY not set in environment.")
-    url = f"https://financialmodelingprep.com/api/v3/profile/{symbol}"
+    url = f"https://financialmodelingprep.com/stable/profile?symbol={symbol}"
     params = {"apikey": FMP_API_KEY}
     data = _get_json(url, params)
     if not data:
@@ -143,7 +137,7 @@ def resolve_symbol(query: str) -> Tuple[str, str]:
     """
     Use FMP's search endpoint to resolve a name/ticker into a symbol + company name.
 
-    Endpoint: /api/v3/search
+    Endpoint: /stable/search-name
     """
     raw = query.strip()
 
@@ -151,7 +145,7 @@ def resolve_symbol(query: str) -> Tuple[str, str]:
         raise RuntimeError("FMP_API_KEY not set in environment.")
 
     # If they already gave something ticker-like, we'll still run search but fallback gracefully.
-    url = "https://financialmodelingprep.com/api/v3/search"
+    url = "https://financialmodelingprep.com/stable/search-name"
     params = {"query": raw, "limit": 1, "exchange": "NASDAQ,NYSE,AMEX", "apikey": FMP_API_KEY}
     try:
         data = _get_json(url, params)
