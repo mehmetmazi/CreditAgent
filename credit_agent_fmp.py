@@ -21,7 +21,6 @@ class CreditMetrics:
     ticker: str
     company_name: str
     fiscal_year: str
-
     revenue: float
     ebitda: float
     ebit: float
@@ -30,13 +29,11 @@ class CreditMetrics:
     capex: float
     change_in_wc: float
     total_debt: float
-
     fcf: float
     fcf_to_debt: float
     debt_to_ebitda: float
     interest_coverage: float
     dscr: float
-
     score: int
     rating_bucket: str
 
@@ -100,7 +97,7 @@ def fetch_fmp_balance_sheet(symbol: str, api_key: str) -> Dict[str, Any]:
 def fetch_fmp_cash_flow(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns the latest annual cash flow statement dict from FMP.
-    Endpoint: /stable/cash-flow-statement/{symbol}?limit=1
+    Endpoint: /stable/cash-flow-statement?symbol={symbol}?limit=1
     """
     url = f"https://financialmodelingprep.com/stable/cash-flow-statement?symbol={symbol}"
     params = {"limit": 1, "apikey": api_key}
@@ -113,7 +110,7 @@ def fetch_fmp_cash_flow(symbol: str, api_key: str) -> Dict[str, Any]:
 def fetch_fmp_profile(symbol: str, api_key: str) -> Dict[str, Any]:
     """
     Returns company profile with name, etc.
-    Endpoint: /stable/profile/{symbol}
+    Endpoint: /stable/profile?symbol={symbol}
     """
     url = f"https://financialmodelingprep.com/stable/profile?symbol={symbol}"
     params = {"apikey": api_key}
