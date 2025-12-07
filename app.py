@@ -334,20 +334,25 @@ def report():
     memo = None
     symbol = None
 
-    try:
-        symbol, company_name = resolve_symbol(query)
-        metrics = fetch_credit_metrics_for_symbol(symbol, forced_name=company_name)
+    # Get API key from environment
+    fmp_api_key = os.getenv("FMP_API_KEY")
+    if not fmp_api_key:
+        error = "FMP_API_KEY environment variable is not set. Please configure your API key."
+    else:
+        try:
+            symbol, company_name = resolve_symbol(query, fmp_api_key)
+            metrics = fetch_credit_metrics_for_symbol(symbol, fmp_api_key, forced_name=company_name)
 
-        if os.getenv("OPENAI_API_KEY"):
-            try:
-                memo = generate_credit_memo_with_llm(metrics)
-            except Exception as e:
-                memo = f"Note: Credit memo generation failed: {str(e)}"
-        else:
-            memo = "Note: Set OPENAI_API_KEY environment variable to enable AI-generated credit memos."
+            if os.getenv("OPENAI_API_KEY"):
+                try:
+                    memo = generate_credit_memo_with_llm(metrics)
+                except Exception as e:
+                    memo = f"Note: Credit memo generation failed: {str(e)}"
+            else:
+                memo = "Note: Set OPENAI_API_KEY environment variable to enable AI-generated credit memos."
 
-    except Exception as e:
-        error = f"Could not fetch credit analysis for '{query}': {str(e)}"
+        except Exception as e:
+            error = f"Could not fetch credit analysis for '{query}': {str(e)}"
 
     template = """
     <!doctype html>
@@ -795,8 +800,12 @@ def download_pdf():
     if not symbol:
         return "Missing symbol parameter", 400
 
+    fmp_api_key = os.getenv("FMP_API_KEY")
+    if not fmp_api_key:
+        return "FMP_API_KEY not configured", 500
+
     try:
-        metrics = fetch_credit_metrics_for_symbol(symbol)
+        metrics = fetch_credit_metrics_for_symbol(symbol, fmp_api_key)
 
         memo_text = None
         if os.getenv("OPENAI_API_KEY"):
@@ -830,8 +839,12 @@ def api_search():
     if not query:
         return jsonify({"error": "Missing query parameter"}), 400
 
+    fmp_api_key = os.getenv("FMP_API_KEY")
+    if not fmp_api_key:
+        return jsonify({"error": "FMP_API_KEY not configured"}), 500
+
     try:
-        symbol, company_name = resolve_symbol(query)
+        symbol, company_name = resolve_symbol(query, fmp_api_key)
         return jsonify({
             "symbol": symbol,
             "company_name": company_name
